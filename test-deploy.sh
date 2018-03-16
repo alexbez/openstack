@@ -1,5 +1,9 @@
 # Deploy a test server in Open Telekom Cloud (T-Systems)
-# Prerequisite: Relevant OpenStack environment variables are already set
+# from a public image
+#
+# Prerequisites: 
+#   1. Relevant OpenStack environment variables are already set
+#   2. Parameters are stored in ./test-params.sh
 #
 echo Sourcing parameters from './test-params.sh'
 source ./test-params.sh
