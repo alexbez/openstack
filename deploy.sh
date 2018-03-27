@@ -1,12 +1,12 @@
 #!/bin/sh
-# deploy.sh <server_name> <server_flavor> <disk_size> <router> <network> <subnet_name> <port> <keypair>
+# deploy.sh <server_name> <server_flavor> <disk_size> <router> <network> <subnet_name> <subnet_range> <port> <keypair>
 # Alexander Bezprozvanny 
 
 set -eu
 
-if [ $# -ne 8 ]
+if [ $# -ne 9 ]
 then
-  echo 1>&2 "Usage: $0 <server_name> <server_flavor> <disk_size> <router> <network> <subnet> <port> <keypair>"
+  echo 1>&2 "Usage: $0 <server_name> <server_flavor> <disk_size> <router> <network> <subnet_name> <subnet_range> <port> <keypair>"
   echo 1>&2 "Limitation: No public IP yet!"
   exit 1
 fi
@@ -21,10 +21,10 @@ DISK_SIZE=$3
 ROUTER=$4
 NETWORK=$5
 SUBNET=$6
-PORT=$7
-KEYPAIR=$8
+SUBNET_RANGE=$7
+PORT=$8
+KEYPAIR=$9
 
-SUBNET_RANGE="192.168.10.0/24"
 IMAGE_ID="9dae17b7-f917-4324-8795-cbf62a2bbdad"
 #IMAGE_ID=""
 IMAGE_NAME="RHEL-7.4-OCP-base"
@@ -33,7 +33,7 @@ echo "Deployment started $(date)"
 
 # Check if the router exists
 ROUTER_ID=$(openstack router list -f json | jq " .[] | select(.Name==\"$ROUTER\") | .ID ")
-
+echo "*** ROUTER_ID: $ROUTER_ID"
 if [ -z "$ROUTER_ID" ]
 then
   echo 1>&2 "Router $ROUTER does not exist. Creating it."
@@ -49,8 +49,8 @@ fi
 echo "Router ID: " $ROUTER_ID
 
 #Check if the network exists
-NETWORK_ID=$(openstack network list -f json | jq " .[] | select(.Name==\"$NETWORK\") | .id")
-
+NETWORK_ID=$(openstack network list --name "$NETWORK" -f json | jq ".[] | .ID")
+echo "*** NETWORK_ID: $NETWORK_ID"
 if [ -z "$NETWORK_ID" ]
 then
   echo 1>&2 "Network $NETWORK does not exist. Creating it"
@@ -66,7 +66,8 @@ fi
 echo "Network ID: $NETWORK_ID"
 
 # Check if the subnet exists
-SUBNET_ID=$(openstack subnet list -f json | jq " .[] | select(.Name==\"$SUBNET\") | .id")
+SUBNET_ID=$(openstack subnet list --name "$SUBNET" -f json | jq " .[] | .ID")
+echo "*** SUBNET_ID: $SUBNET_ID"
 if [ -z "$SUBNET_ID" ]
 then
   echo 1>&2 "Subnet $SUBNET does not exist. Creating it."
@@ -105,7 +106,7 @@ KEYPAIR_ID=$(openstack keypair list -f json | jq " .[] | select(.Name==\"$KEYPAI
 if [ -z "$KEYPAIR_ID" ]
 then
   echo 1>&2 "Keypair $KEYPAIR does not exist. Creating it"
-  openstack keypair create $KEYPAIR --public-key ~/.ssh/id_rsa.pub
+  openstack keypair create $KEYPAIR --public-key ~/.ssh/id_rsa.pub > /dev/null
 fi
 echo "Keypair: " $KEYPAIR
 
@@ -115,6 +116,7 @@ if [ -z "$IMAGE_ID" ]
 then
   echo "IMAGE_ID is not defined, seeking image by name $IMAGE_NAME"
   IMAGE_ID=$(openstack image list -f json | jq " .[] | select(.Name==\"$IMAGE_NAME\") | .id")
+  echo "*** IMAGE_ID: $IMAGE_ID"
 fi
   
 if [ -z "$IMAGE_ID" ]
@@ -130,6 +132,7 @@ OS_VOLUME_NAME=$SERV_NAME-os-volume
 echo "OS Volume name: $OS_VOLUME_NAME"
 
 VOLUME=$(openstack volume list --name $OS_VOLUME_NAME -f json | jq ".[] | .ID" )
+echo "*** VOLUME: $VOLUME"
 if [ -z "$VOLUME" ]
 then
 
