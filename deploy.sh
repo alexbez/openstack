@@ -1,8 +1,8 @@
 #!/bin/sh
 # deploy.sh <server_name> <server_flavor> <disk_size> <router> <network> <subnet_name> <port> <keypair>
-#
+# Alexander Bezprozvanny 
 
-#set -eu
+set -eu
 
 if [ $# -ne 8 ]
 then
@@ -10,6 +10,10 @@ then
   echo 1>&2 "Limitation: No public IP yet!"
   exit 1
 fi
+
+PUBLIC_IP=true
+EXTERNAL_NET_ID=0a2228f2-7f8a-45f1-8e09-9039e1d09975
+EXTERNAL_NET=admin_external_net
 
 SERV_NAME=$1
 FLAVOR=$2
@@ -20,6 +24,7 @@ SUBNET=$6
 PORT=$7
 KEYPAIR=$8
 
+SUBNET_RANGE="192.168.10.0/24"
 IMAGE_ID="9dae17b7-f917-4324-8795-cbf62a2bbdad"
 #IMAGE_ID=""
 IMAGE_NAME="RHEL-7.4-OCP-base"
@@ -31,8 +36,8 @@ ROUTER_ID=$(openstack router list -f json | jq " .[] | select(.Name==\"$ROUTER\"
 
 if [ -z "$ROUTER_ID" ]
 then
-  echo 1>&2 "Router $ROUTER does not exist. Creting it."
-  $ROUTER_ID=$(openstack router create $ROUTER -f json | jq ".[] | .ID")
+  echo 1>&2 "Router $ROUTER does not exist. Creating it."
+  ROUTER_ID=$(openstack router create $ROUTER -f json | jq ".id ")
 fi
 
 if [ -z "$ROUTER_ID" ]
@@ -41,15 +46,15 @@ then
   exit 2
 fi
 
-echo "ROUTER_ID: " $ROUTER_ID
+echo "Router ID: " $ROUTER_ID
 
 #Check if the network exists
-NETWORK_ID=$(openstack network list -f json | jq " .[] | select(.Name==\"$NETWORK\") | .ID")
+NETWORK_ID=$(openstack network list -f json | jq " .[] | select(.Name==\"$NETWORK\") | .id")
 
 if [ -z "$NETWORK_ID" ]
 then
   echo 1>&2 "Network $NETWORK does not exist. Creating it"
-  NETWORK_ID=$(openstack network create $NETWORK -f json | jq " .[] .ID")
+  NETWORK_ID=$(openstack network create $NETWORK -f json | jq ".id")
 fi
 
 if [ -z "$NETWORK_ID" ]
@@ -58,17 +63,14 @@ then
   exit 3
 fi
 
-echo "Network ID: " $NETWORK_ID
+echo "Network ID: $NETWORK_ID"
 
 # Check if the subnet exists
-SUBNET_ID=$(openstack subnet list -f json | jq " .[] | select(.Name==\"$SUBNET\") | .ID")
-echo #1 SUBNET_ID="$SUBNET_ID"
+SUBNET_ID=$(openstack subnet list -f json | jq " .[] | select(.Name==\"$SUBNET\") | .id")
 if [ -z "$SUBNET_ID" ]
 then
   echo 1>&2 "Subnet $SUBNET does not exist. Creating it."
-  openstack 1>/dev/null subnet create --network $NETWORK --subnet-range "192.168.10.0/24" $SUBNET -f json 
-
-  SUBNET_ID=$(openstack subnet list -f json | jq " .[] | select(.Name==\"$SUBNET\") | .ID")
+  SUBNET_ID=$(openstack subnet create --network $NETWORK --subnet-range $SUBNET_RANGE $SUBNET -f json | jq ".id")
 fi
 
 if [ -z "$SUBNET_ID" ]
@@ -77,7 +79,7 @@ then
   exit 4
 fi
 
-echo "Subnet ID: " $SUBNET_ID
+echo "Subnet ID: $SUBNET_ID"
 
 openstack router add subnet $ROUTER $SUBNET
 echo "Subnet $SUBNET added to the router $ROUTER"
@@ -112,7 +114,7 @@ echo "Keypair: " $KEYPAIR
 if [ -z "$IMAGE_ID" ]
 then
   echo "IMAGE_ID is not defined, seeking image by name $IMAGE_NAME"
-  IMAGE_ID=$(openstack image list -f json | jq " .[] | select(.Name==\"$IMAGE_NAME\") | .ID")
+  IMAGE_ID=$(openstack image list -f json | jq " .[] | select(.Name==\"$IMAGE_NAME\") | .id")
 fi
   
 if [ -z "$IMAGE_ID" ]
@@ -121,50 +123,55 @@ then
   exit 7
 fi
 
-echo "Image ID: " $IMAGE_ID
+echo "Image ID: $IMAGE_ID"
 
 # Check if the OS volume already exist
-######
-# TODO
-######
+OS_VOLUME_NAME=$SERV_NAME-os-volume
+echo "OS Volume name: $OS_VOLUME_NAME"
+
+VOLUME=$(openstack volume list --name $OS_VOLUME_NAME -f json | jq ".[] | .ID" )
+if [ -z "$VOLUME" ]
+then
 
 # Creating system volume from image
-OS_VOLUME_NAME=$SERV_NAME-os-volume
-echo "OS Volume Name: " $OS_VOLUME_NAME
 
 
 # Removing first and last '"' char from the IMAGE_ID
-temp="${IMAGE_ID%\"}"
-temp="${temp#\"}"
-IMAGE_ID=$temp
+  temp="${IMAGE_ID%\"}"
+  temp="${temp#\"}"
+  IMAGE_ID=$temp
 
-echo "Stripped IMAGE_ID: " $IMAGE_ID
+#  echo "Stripped IMAGE_ID: " $IMAGE_ID
 
-OS_VOLUME_ID=$(openstack volume create $OS_VOLUME_NAME --size $DISK_SIZE --type SATA --availability-zone "eu-de-02" --image $IMAGE_ID -f json | jq ".id")
+  OS_VOLUME_ID=$(openstack volume create $OS_VOLUME_NAME --size $DISK_SIZE --type SATA --availability-zone "eu-de-02" --image $IMAGE_ID -f json | jq ".id")
 
-echo "OS Volume ID: " $OS_VOLUME_ID
-echo "Volume is being created..."
+  echo "OS Volume ID: $OS_VOLUME_ID"
+  echo "Volume is being created..."
 
 
-STATUS=$(openstack volume list --name $OS_VOLUME_NAME -f json | jq ".[] | .Status")
-
-COUNT=0
-DESIRED="\"available\""
-
-while [ "$STATUS" != "$DESIRED" ]
-do
-  echo "    $COUNT: $STATUS --> $DESIRED"
-  sleep 5
-  COUNT=$(( COUNT+1 ))
-  if [ $COUNT -gt 30 ]
-  then 
-    echo 1>&2 "Volume is still not available after 5 minutes. Aborting."
-    exit 20
-  fi
   STATUS=$(openstack volume list --name $OS_VOLUME_NAME -f json | jq ".[] | .Status")
-done
 
-echo "OS volume created" $OS_VOLUME_ID
+  COUNT=0
+  DESIRED="\"available\""
+
+  while [ "$STATUS" != "$DESIRED" ]
+  do
+    echo "    $COUNT: $STATUS --> $DESIRED"
+    sleep 5
+    COUNT=$(( COUNT+1 ))
+    if [ $COUNT -gt 30 ]
+    then 
+      echo 1>&2 "Volume is still not available after 5 minutes. Aborting."
+      exit 20
+    fi
+    STATUS=$(openstack volume list --name $OS_VOLUME_NAME -f json | jq ".[] | .Status")
+  done
+
+  echo "OS volume created" $OS_VOLUME_ID
+else
+  echo "Volume $OS_VOLUME_NAME already exists. Aborting."
+  exit 21
+fi
 
 # Checking if server flavor is valid
 FLAVOR_ID=$(openstack flavor list -f json | jq " .[] | select(.Name==\"$FLAVOR\") | .ID")
@@ -182,6 +189,22 @@ openstack server create --volume $OS_VOLUME_NAME --flavor $FLAVOR --key-name $KE
 
 SERVER_ID=$(openstack server show $SERV_NAME -f json | jq ".id")
 echo "Server deployed: " $SERVER_ID
+
+if [ $PUBLIC_IP ]
+then
+   echo "Allocating dynamic external IP for the server"
+   EIP=$(openstack floating ip create --port $PORT $EXTERNAL_NET_ID -f json | jq ".floating_ip_address")
+
+   if [ -z "$EIP" ]
+   then
+      echo 1>&2 "Cannot allocate external IP for the server. Aborting."
+      exit 13
+   fi
+   echo "Public IP: $EIP"
+else
+   echo "No public IP requested. Skipping"
+fi
+
 echo "Deployment completed $(date)"
 
 exit 0
