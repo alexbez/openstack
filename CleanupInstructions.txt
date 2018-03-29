@@ -2,11 +2,15 @@ How to clean-up the instance
 ----------------------------
 
 openstack floating ip delete <public_ip>
+openstack server stop <server>
+openstack router remove port <router> <port>
+openstack port delete <port>
+openstack router remove subnet <router> <subnet>
+openstack subnet delete <subnet>
+openstack network delete <network>
+openstack router delete <router>
+
 openstack server delete --wait <server>
 openstack volume delete <disk_volume>
-openstack router remove port <router> <port>
-openstack subnet delete <subnet>
-openstack network delete <networkouter delete <router>
 openstack security group delete <sg>
 openstack keypair delete <keypair>
-
